@@ -238,6 +238,7 @@ impl App {
             let _ = w.evaluate_script("peek.clear()");
         }
         self.window.set_visible(false);
+        native::pdf_release();
         native::TYPING.store(false, std::sync::atomic::Ordering::Relaxed);
         if let Some(w) = &self.webview {
             let _ = w.set_memory_usage_level(wry::MemoryUsageLevel::Low);

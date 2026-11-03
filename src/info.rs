@@ -164,7 +164,11 @@ pub fn basic(path: &str, index: usize, total: usize) -> Value {
         "accessed": md.as_ref().map(|m| fmt_time(m.last_access_time())).unwrap_or_default(),
         "hidden": attrs & 2 != 0,
         "readonly": attrs & 1 != 0,
-        "url": file_url(path),
+        // 带上修改时间和大小：文件被覆盖后 URL 跟着变，否则页面会复用内存里的旧图/旧内容
+        "url": match md.as_ref().filter(|m| !m.is_dir()) {
+            Some(m) => format!("{}?v={:x}-{:x}", file_url(path), m.last_write_time(), m.len()),
+            None => file_url(path),
+        },
         "index": index,
         "total": total,
     })

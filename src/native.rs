@@ -457,6 +457,11 @@ fn pdf_doc(path: &str) -> windows::core::Result<windows::Data::Pdf::PdfDocument>
     Ok(doc)
 }
 
+/// 关闭预览时放掉文档：它把文件内存映射着，不放的话别的程序原地覆盖写这个文件会失败（WinError 1224）
+pub fn pdf_release() {
+    PDF.lock().unwrap().take();
+}
+
 /// 各页尺寸（pt），JSON：[[w,h],...]；加密或损坏的文件返回 Err，页面退回内置查看器
 pub fn pdf_pages(path: &str) -> Result<String, String> {
     let e = |x: windows::core::Error| x.message().to_string();

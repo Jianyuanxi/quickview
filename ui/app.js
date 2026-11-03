@@ -123,7 +123,8 @@ async function renderPdf(path, url, t) {
     const d = e.target; io.unobserve(d);
     const img = new Image(); img.alt = ''; img.draggable = false;
     img.onload = () => d.classList.add('ok');
-    img.src = `http://peek.localhost/pdfpage?${q}&n=${d.dataset.n}&w=${Math.round(d.clientWidth * devicePixelRatio)}`;
+    // 带上 t：同一路径的文件被覆盖后再预览，URL 不同才不会复用内存里的旧页图
+    img.src = `http://peek.localhost/pdfpage?${q}&n=${d.dataset.n}&w=${Math.round(d.clientWidth * devicePixelRatio)}&t=${t}`;
     d.appendChild(img);
   }), { root: view, rootMargin: '150% 0px' });
   for (let i = 0; i < pages.length; i++) {
