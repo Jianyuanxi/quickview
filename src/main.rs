@@ -134,6 +134,8 @@ struct App {
     prev_fg: isize,
     hidden_at: Option<Instant>,
     pinned: bool,
+    // 已映射成 x.peekfs 的盘符位掩码；U 盘等后插入的盘要在预览前补映射
+    drives: u32,
     proxy: EventLoopProxy<UserEvent>,
     worker: mpsc::Sender<WorkerCmd>,
 }
@@ -156,7 +158,7 @@ impl App {
             .with_background_color(if native::dark_mode() { (30, 30, 32, 255) } else { (246, 246, 247, 255) })
             .build(&self.window)
             .expect("WebView2 创建失败");
-        map_drives(&wv);
+        self.drives = map_drives(&wv, 0);
         hook_keys(&wv, self.proxy.clone());
         self.webview = Some(wv);
         self.ready = false;
@@ -175,6 +177,9 @@ impl App {
     /// 先按文件类型把窗口调到目标大小，再交给页面渲染
     fn show_current(&mut self) {
         let Some(path) = self.items.get(self.index).cloned() else { return };
+        if let Some(w) = &self.webview {
+            self.drives = map_drives(w, self.drives);
+        }
         let v = info::basic(&path, self.index, self.items.len());
         self.window.set_title(v["name"].as_str().unwrap_or("QuickView"));
         let f = |k: &str| v[k].as_f64().unwrap_or(0.0);
@@ -356,24 +361,35 @@ fn hook_keys(wv: &WebView, proxy: EventLoopProxy<UserEvent>) {
     }
 }
 
-/// 每个盘符映射成虚拟主机 x.peekfs，网页直接按 URL 读本地文件（支持视频拖动、Range 请求）
-fn map_drives(wv: &WebView) {
+/// 每个盘符映射成虚拟主机 x.peekfs，网页直接按 URL 读本地文件（支持视频拖动、Range 请求）。
+/// 只映射 `done` 里还没有的盘符，返回新的已映射掩码（拔掉的盘留着映射无害）
+fn map_drives(wv: &WebView, done: u32) -> u32 {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
     use windows::core::{Interface, HSTRING};
-    let Ok(core3) = wv.webview().cast::<ICoreWebView2_3>() else { return };
     let mask = unsafe { windows::Win32::Storage::FileSystem::GetLogicalDrives() };
+    if mask & !done == 0 {
+        return done;
+    }
+    let Ok(core3) = wv.webview().cast::<ICoreWebView2_3>() else { return done };
+    let mut ok = done;
     for i in 0..26u32 {
-        if mask & (1 << i) != 0 {
+        if mask & !done & (1 << i) != 0 {
             let l = (b'a' + i as u8) as char;
             unsafe {
-                let _ = core3.SetVirtualHostNameToFolderMapping(
-                    &HSTRING::from(format!("{}.peekfs", l)),
-                    &HSTRING::from(format!("{}:\\", l.to_ascii_uppercase())),
-                    COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW,
-                );
+                if core3
+                    .SetVirtualHostNameToFolderMapping(
+                        &HSTRING::from(format!("{}.peekfs", l)),
+                        &HSTRING::from(format!("{}:\\", l.to_ascii_uppercase())),
+                        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW,
+                    )
+                    .is_ok()
+                {
+                    ok |= 1 << i;
+                }
             }
         }
     }
+    ok
 }
 
 /// 自检：列出所有资源管理器窗口的选中项，写到 %TEMP%\quickview-selftest.txt
@@ -599,6 +615,7 @@ fn main() {
         prev_fg: 0,
         hidden_at: None,
         pinned: false,
+        drives: 0,
         proxy,
         worker: wtx,
     };
